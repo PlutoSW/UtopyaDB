@@ -8,13 +8,13 @@ $db = new UtopyaDB("fuuyemek");
 
 ## Backup / Restore
 
-### Backup
+#### Backup
 
 ```
 $db->backupDB();
 ```
 
-### Restore
+#### Restore
 
 ```
 $db->restoreBD("file.zip");
@@ -22,25 +22,25 @@ $db->restoreBD("file.zip");
 
 ## Schema Operations
 
-### Create Schema (Create Table)
+#### Create Schema (Create Table)
 
 ```
 $db->createSchema("Schema Name");
 ```
 
-### Select Schema (Select Table)
+#### Select Schema (Select Table)
 
 ```
 $db->schema("Schema Name");
 ```
 
-### Rename Schema (Rename Table)
+#### Rename Schema (Rename Table)
 
 ```
 $db->schema("Schema Name")->rename("New Schema Name");
 ```
 
-### Drop Schema (Drop Table)
+#### Drop Schema (Drop Table)
 
 ```
 $db->schema("Schema Name")->drop();
