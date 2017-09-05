@@ -10,7 +10,7 @@ $db->backupDB();
 $db->restoreBD("file.zip");
 
 
-#Schema Operations
+# Schema Operations
 Create Schema (Create Table)
 $db->createSchema("Schema Name");
 
@@ -24,9 +24,9 @@ Drop Schema (Drop Table)
 $db->schema("Schema Name")->drop();
 
 
-#Index
+# Index
 $db->schema("Schema Name")->index(array("name","time"));
 
 
-#Query
+# Query
 $db->schema("Schema Name")->find(array("name"=>"freedom"))->limit(0,10)->result();
