@@ -6,7 +6,7 @@ File based Database with Php
 $db = new UtopyaDB("fuuyemek");
 ```
 
-### Backup / Restore
+## Backup / Restore
 
 ### Backup
 
@@ -21,7 +21,8 @@ $db->restoreBD("file.zip");
 ```
 
 ## Schema Operations
-###Create Schema (Create Table)
+
+### Create Schema (Create Table)
 
 ```
 $db->createSchema("Schema Name");
