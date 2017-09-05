@@ -46,13 +46,13 @@ $db->schema("Schema Name")->rename("New Schema Name");
 $db->schema("Schema Name")->drop();
 ```
 
-### Index
+## Index
 
 ```
 $db->schema("Schema Name")->index(array("name","time"));
 ```
 
-### Query
+## Query
 
 ```
 $db->schema("Schema Name")->find(array("name"=>"freedom"))->limit(0,10)->result();
