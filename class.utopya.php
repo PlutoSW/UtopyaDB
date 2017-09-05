@@ -566,7 +566,15 @@ class UtopyaDB extends Query
             $this->updateSchemas();
             return $this;
         } else {
-            return false;
+            $this->createDB($db);
         }
+    }
+    public function createDB($db)
+    {
+        mkdir($this->utopyaPath . $db);
+        $this->db     = $db;
+        $this->dbPath = $this->utopyaPath . $db . "/";
+        $this->updateSchemas();
+        return $this;
     }
 }
