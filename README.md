@@ -57,10 +57,11 @@ $db->schema("Schema Name")->drop();
 ```
 $db->schema("Schema Name")->insert(array("name"=>"Jhon", "lastname"=>"Doe", "contact"=>array("phone"=>"111")));
 ```
-### Find
 #### Find
 ```
-$db->schema("Schema Name")->find(function($data){
+
+$query = function($data){
 return $data["contact"]["phone"] == "111";
-})->limit(0,10)->result();
+}
+$db->schema("Schema Name")->find($query)->limit(0,10)->result();
 ```
