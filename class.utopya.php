@@ -18,11 +18,6 @@ class UtopyaRegexTurkish
 }
 class dbOperate
 {
-    protected function isRegex($string)
-    {
-        $regex = "/^\/.+\/[a-z]*$/i";
-        return preg_match($regex, $string);
-    }
     protected function isJson($string)
     {
         return !empty($string) && is_string($string) && is_array(json_decode($string, true)) && json_last_error() == 0;
@@ -90,13 +85,6 @@ class dbOperate
         }
         return $zip->close();
     }
-    public function findRegex($pattern, $input, $flags = 0)
-    {
-        return array_merge(
-            array_intersect_key(new UtopyaRegexTurkish($input), array_flip(preg_grep($pattern, array_keys(new UtopyaRegexTurkish($input)), $flags))),
-            preg_grep($pattern, new UtopyaRegexTurkish($input), $flags)
-        );
-    }
 }
 class Schemas extends dbOperate
 {
@@ -128,14 +116,14 @@ class Schemas extends dbOperate
     }
     public function schema($schema)
     {
-        if (!is_array($schema)) {
+        if (!is_array($schema) || $this->isJson($schema)) {
             $schema = $this->translate($schema);
             if ($this->schemaExist($schema)) {
                 $this->schemaName = $schema;
                 $this->schema     = $this->dbPath . $schema;
                 return $this;
             } else {
-                $this->error("Schema not found", $schema);
+                $this->createSchema($schema);
                 return $this;
             }
         } else {
@@ -190,208 +178,41 @@ class Schemas extends dbOperate
     }
 }
 
-class Index extends Schemas
+class Query
 {
-    protected function indexes($schema)
+    public function query($query)
     {
-        return json_decode(file_get_contents($this->dbPath . $schema . "-indexes.json"), true);
-    }
-    public function index($row = false)
-    {
-        $indexes = $this->indexes($this->schemaName);
-        if (!$indexes) {
-            $indexes = array();
-        }
-        if (!$row) {
-            $row = $indexes;
-        }
-        $files = $this->schema($this->schemaName)->findAll()->result();
-        $old   = array();
-        foreach ($row as $r1) {
-            foreach ($files as $file) {
-                if (is_array($file[$r1])) {
-                    foreach ($file[$r1] as $r) {
-                        $old[$r1][$r][] = $file["id"];
-                    }
-                } else {
-                    $old[$r1][$file[$r1]][] = $file["id"];
-                }
-            }
-        }
-        $indexes = array_merge($indexes, $row);
-        $indexes = array_unique($indexes);
-        file_put_contents($this->dbPath . $this->schemaName . "-indexes.json", json_encode($indexes));
-        file_put_contents($this->dbPath . $this->schemaName . "-index.json", json_encode($old));
-    }
-    protected function getIndex($index)
-    {
-        $in     = json_decode(file_get_contents($this->dbPath . $this->schemaName . "-index.json"), true);
-        $return = array();
-        foreach ($index as $key => $value) {
-            if (is_array($value)) {
-                foreach ($value as $k) {
-                    if (!$this->isRegex($k)) {
-                        foreach ($in[$key][$k] as $w) {
-                            $return[] = $this->schema . "/" . $w . ".json";
-                        }
-                    } else {
-                        foreach ($this->findRegex($k, array_keys($in[$key])) as $ret) {
-                            $return[] = $this->schema . "/" . $in[$key][$ret][0] . ".json";
-                        }
-                    }
-                }
-
-            } else {
-                foreach ($in[$key][$value] as $w) {
-                    $return[] = $this->schema . "/" . $w . ".json";
-                }
-            }
-        }
-        return $return;
-    }
-}
-class Query extends Index
-{
-    private function query($params, $type)
-    {
-
-        $types = array(
-            null  => "&&",
-            "or"  => "||",
-            "and" => "&&",
-        );
-        if (!is_array($this->schema)) {
-            $indexes = $this->indexes($this->schemaName);
-
-            foreach ($params as $key => $value) {
-                if (!is_array($value)) {
-                    $isindex  = (strstr($key, "deep.")) ? explode("deep.", $key)[1] : $key;
-                    $getindex = array();
-                    if (in_array($isindex, $indexes)) {
-                        $getindex[$isindex][] = $value;
-                    }
-                } else {
-                    foreach ($value as $w) {
-                        $isindex  = (strstr($w, "deep.")) ? explode("deep.", $w)[1] : $w;
-                        $getindex = array();
-                        if (in_array($isindex, $indexes)) {
-                            $getindex[$isindex][] = $w;
-                        }
-                    }
-                }
-            }
-
-            $files = $this->getIndex($getindex);
-            if (count($files) === 0) {
-                $files = glob($this->schema . "/*");
-            }
-            natsort($files);
-            $match = array();
-            $val   = '';
-            foreach ($params as $key => $value) {
-                if (!is_array($value)) {
-                    if (strstr($key, "deep.")) {
-                        if (!$this->isRegex($value)) {
-                            $val .= '(array_search("' . $value . '", $data["' . explode("deep.", $key)[1] . '"]) !== false) && (array_search("' . $value . '", $data["' . explode("deep.", $key)[1] . '"]) !== null) ' . $types[$type] . ' ';
-                        } else {
-                            $val .= '($this->findRegex("' . $value . '", $data["' . explode("deep.", $key)[1] . '"])) ' . $types[$type] . ' ';
-                        }
-                    } elseif (strstr($key, ".")) {
-                        $key = str_replace(".", '"]["', $key);
-
-                        if (!$this->isRegex($value)) {
-                            $val .= '(array_search("' . $value . '", $data["' . $key . '"]) !== false) && (array_search("' . $value . '", $data["' . $key . '"]) !== null) ' . $types[$type] . ' ';
-                        } else {
-                            $val .= '(preg_match("' . $value . '", new UtopyaRegexTurkish($data["' . $key . '"]))) ' . $types[$type] . ' ';
-
-                        }
-                    } else {
-                        if (!$this->isRegex($value)) {
-                            $val .= '($data["' . $key . '"] == "' . $value . '") ' . $types[$type] . ' ';
-                        } else {
-                            $val .= '(preg_match("' . $value . '", new UtopyaRegexTurkish($data["' . $key . '"]))) ' . $types[$type] . ' ';
-                        }
-                    }
-                } else {
-                    foreach ($value as $w) {
-                        if (strstr($key, "deep.")) {
-                            if (!$this->isRegex($value)) {
-                                $val .= '(array_search("' . $w . '", $data["' . explode("deep.", $key)[1] . '"]) !== false) && (array_search("' . $w . '", $data["' . explode("deep.", $key)[1] . '"]) !== null) ' . $types[$type] . ' ';
-                            } else {
-                                $val .= '($this->findRegex("' . $w . '", $data["' . explode("deep.", $key)[1] . '"])) ' . $types[$type] . ' ';
-                            }
-                        } else {
-                            if (!$this->isRegex($w)) {
-                                $val .= '($data["' . $key . '"] == "' . $w . '") ' . $types[$type] . ' ';
-                            } else {
-                                $val .= '(preg_match("' . $w . '", new UtopyaRegexTurkish($data["' . $key . '"]))) ' . $types[$type] . ' ';
-                            }
-                        }
-                    }
-                }
-            }
-
-            $val2 = rtrim($val, $types[$type] . ' ');
+        $queryDataSet = array();
+        $files        = glob($this->schema . "/*");
+        if (!is_array($this->schema) || !$this->isJson($this->schema)) {
             foreach ($files as $file) {
                 $fileContents = file_get_contents($file);
                 $data         = json_decode($fileContents, true);
-                if (eval("return $val2;")) {
-                    array_push($match, $data);
+                try {
+                    if ($query($data)) {
+                        array_push($queryDataSet, $data);
+                    }
+                } catch (Exception $e) {
+                    var_dump($e);
                 }
             }
         } else {
-            $fileContents = $this->schema;
-            $match        = array();
-            $val          = '';
-            foreach ($params as $key => $value) {
-                if (!is_array($value)) {
-                    if (strstr($key, "deep.")) {
-                        if (!$this->isRegex($value)) {
-                            $val .= '(array_search("' . $value . '", $data["' . explode("deep.", $key)[1] . '"]) !== false) ' . $types[$type] . ' ';
-                        } else {
-                            $val .= '($this->findRegex("' . $value . '", $data["' . explode("deep.", $key)[1] . '"])) ' . $types[$type] . ' ';
-                        }
-                    } else {
-                        if (!$this->isRegex($value)) {
-                            $val .= '($data["' . $key . '"] == "' . $value . '") ' . $types[$type] . ' ';
-                        } else {
-                            $val .= '(preg_match("' . $value . '", $data["' . $key . '"])) ' . $types[$type] . ' ';
-                        }
-                    }
-                } else {
-                    foreach ($value as $w) {
-                        if (strstr($key, "deep.")) {
-                            if (!$this->isRegex($value)) {
-                                $val .= '(array_search("' . $w . '", $data["' . explode("deep.", $key)[1] . '"]) !== false) ' . $types[$type] . ' ';
-                            } else {
-                                $val .= '($this->findRegex("' . $w . '", $data["' . explode("deep.", $key)[1] . '"])) ' . $types[$type] . ' ';
-                            }
-                        } else {
-                            if (!$this->isRegex($w)) {
-                                $val .= '($data["' . $key . '"] == "' . $w . '") ' . $types[$type] . ' ';
-                            } else {
-                                $val .= '(preg_match("' . $w . '", $data["' . $key . '"])) ' . $types[$type] . ' ';
-                            }
-                        }
-                    }
+            $data = ($this->isJson($this->schema)) ? json_decode($fileContents, true) : $this->schema;
+            try {
+                if ($query($data)) {
+                    array_push($queryDataSet, $data);
                 }
+            } catch (Exception $e) {
+                var_dump($e);
             }
-            $val2 = rtrim($val, $types[$type] . ' ');
-            foreach ($fileContents as $data) {
-                if (eval("return $val2;")) {
-                    $data["id"] = (string) $data["id"];
-                    array_push($match, $data);
-                }
-            }
-
         }
-
-        if (!$match) {
+        if (!$queryDataSet) {
             return false;
         } else {
-            return $match;
+            return $queryDataSet;
         }
     }
+
     public function find($param, $type = null)
     {
         $documents = $this->query($param, $type);
@@ -430,7 +251,6 @@ class Query extends Index
         try {
             file_put_contents($this->schema . "/" . $lastid . ".json", json_encode($params));
             $this->saveid($lastid, $this->schemaName);
-            $this->index();
             return (array) $params;
         } catch (Exception $e) {
             $this->error($e, $this->schemaName);
@@ -460,7 +280,6 @@ class Query extends Index
             $file = ($file) ? $file : $this->schema . "/" . $d["id"] . ".json";
             try {
                 unlink($file);
-                $this->index();
                 return true;
             } catch (Exception $e) {
                 $this->error($e, $this->schemaName);
@@ -506,7 +325,6 @@ class Query extends Index
             $file     = ($file) ? $file : $this->schema . "/" . $d["id"] . ".json";
             try {
                 file_put_contents($file, json_encode($d));
-                $this->index();
                 return $return;
             } catch (Exception $e) {
                 $this->error($e, $this->schemaName);

@@ -46,14 +46,16 @@ $db->schema("Schema Name")->rename("New Schema Name");
 $db->schema("Schema Name")->drop();
 ```
 
-## Index
-
-```
-$db->schema("Schema Name")->index(array("name","time"));
-```
 
 ## Query
 
+#### Insert
 ```
-$db->schema("Schema Name")->find(array("name"=>"freedom"))->limit(0,10)->result();
+$db->schema("Schema Name")->insert(array("name"=>"Jhon", "lastname"=>"Doe", "contact"=>array("phone"=>"111")));
+```
+### Find
+```
+$db->schema("Schema Name")->find(function($data){
+return $data["contact"]["phone"] == "111";
+})->limit(0,10)->result();
 ```
