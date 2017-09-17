@@ -18,6 +18,11 @@ class UtopyaRegexTurkish
 }
 class dbOperate
 {
+    protected function isRegex($string)
+    {
+        $regex = "/^\/.+\/[a-z]*$/i";
+        return preg_match($regex, $string);
+    }
     protected function isJson($string)
     {
         return !empty($string) && is_string($string) && is_array(json_decode($string, true)) && json_last_error() == 0;
@@ -85,6 +90,21 @@ class dbOperate
         }
         return $zip->close();
     }
+    public function findRegex($pattern, $input, $flags = 0, $e)
+    {
+        if ($e) {
+            return array_merge(
+                array_intersect_key($input, array_flip(preg_grep($pattern, array_keys($input), $flags))),
+                preg_grep($pattern, $input, $flags)
+            );
+        } else {
+            $input = new UtopyaRegexTurkish($input);
+            return array_merge(
+                array_intersect_key($input, array_flip(preg_grep($pattern, array_keys($input), $flags))),
+                preg_grep($pattern, $input, $flags)
+            );
+        }
+    }
 }
 class Schemas extends dbOperate
 {
@@ -116,7 +136,7 @@ class Schemas extends dbOperate
     }
     public function schema($schema)
     {
-        if (!is_array($schema) || $this->isJson($schema)) {
+        if (!is_array($schema)) {
             $schema = $this->translate($schema);
             if ($this->schemaExist($schema)) {
                 $this->schemaName = $schema;
@@ -178,41 +198,129 @@ class Schemas extends dbOperate
     }
 }
 
-class Query
+class Query extends Schemas
 {
-    public function query($query)
+    private function operators($op, $key)
     {
-        $queryDataSet = array();
-        $files        = glob($this->schema . "/*");
-        if (!is_array($this->schema) || !$this->isJson($this->schema)) {
+        $vals = array_values($op)[0];
+        $val  = '';
+        switch (array_keys($op)[0]) {
+            case '$hasKey':
+                $val .= '(isset($data["' . $key . '"]' . ')) && ';
+                break;
+            case '$in':
+                if (!$this->isRegex($vals)) {
+                    if (is_array($vals)) {
+                        foreach ($vals as $value) {
+                            $val .= '(in_array("' . $value . '", $data["' . $key . '"])) || ';
+                        }
+                    } else {
+                        $val .= '(in_array("' . $vals . '", $data["' . $key . '"])) && ';
+                    }
+                } else {
+                    foreach ($vals as $value) {
+                        $val .= '($this->findRegex("' . $value . '", $data["' . $key . '"])) || ';
+                    }
+                }
+                $val = rtrim($val, ' || ');
+                break;
+            case '$or':
+                if (is_array($vals)) {
+                    foreach ($vals as $value) {
+                        if (!$this->isRegex($value)) {
+                            $val .= '($data["' . $key . '"] == "' . $value . '") || ';
+                        } else {
+                            $val .= '(preg_match("' . $value . '", new UtopyaRegexTurkish($data["' . $key . '"]))) || ';
+                        }
+                    }
+                } else {
+                    if (!$this->isRegex($vals)) {
+                        $val .= '($data["' . $key . '"] == "' . $vals . '") || ';
+                    } else {
+                        $val .= '(preg_match("' . $vals . '", new UtopyaRegexTurkish($data["' . $key . '"]))) || ';
+                    }
+                }
+                $val = rtrim($val, ' || ');
+                break;
+        }
+        return $val;
+    }
+    protected function Condition($params)
+    {
+        $val = '';
+        foreach (array_keys($params) as $key) {
+            $value = $params[$key];
+            $key   = (strstr($key, ".")) ? str_replace(".", '"]["', $key) : $key;
+            if (is_array($value)) {
+                $val .= $this->operators($value, $key);
+                if ($val === '') {
+                    foreach ($value as $w) {
+                        if (!$this->isRegex($w)) {
+                            $val .= '($data["' . $key . '"] == "' . $w . '") && ';
+                        } else {
+                            $val .= '(preg_match("' . $w . '", new UtopyaRegexTurkish($data["' . $key . '"]))) && ';
+                        }
+                    }
+                }
+            } else {
+                if (!$this->isRegex($value)) {
+                    $val .= '($data["' . $key . '"] == "' . $value . '") && ';
+                } else {
+                    $val .= '(preg_match("' . $value . '", new UtopyaRegexTurkish($data["' . $key . '"]))) && ';
+                }
+            }
+
+        }
+        $val = rtrim($val, ' && ');
+        return rtrim($val);
+
+    }
+    public function query($params)
+    {
+        if (!is_callable($params)) {
+            $condition   = $this->Condition($params);
+            $is_callable = false;
+        } else {
+            $is_callable = true;
+        }
+        $match = array();
+        if (!is_array($this->schema)) {
+            $files = glob($this->schema . "/*");
+            natsort($files);
             foreach ($files as $file) {
                 $fileContents = file_get_contents($file);
                 $data         = json_decode($fileContents, true);
-                try {
-                    if ($query($data)) {
-                        array_push($queryDataSet, $data);
+                if ($is_callable) {
+                    if ($params($data)) {
+                        array_push($match, $data);
                     }
-                } catch (Exception $e) {
-                    var_dump($e);
+                } else {
+                    if (eval("return $condition;")) {
+                        array_push($match, $data);
+                    }
                 }
             }
         } else {
-            $data = ($this->isJson($this->schema)) ? json_decode($fileContents, true) : $this->schema;
-            try {
-                if ($query($data)) {
-                    array_push($queryDataSet, $data);
+            $fileContents = $this->schema;
+            foreach ($fileContents as $data) {
+                if ($is_callable) {
+                    if ($params($data)) {
+                        array_push($match, $data);
+                    }
+                } else {
+                    if (eval("return $condition;")) {
+                        array_push($match, $data);
+                    }
                 }
-            } catch (Exception $e) {
-                var_dump($e);
             }
         }
-        if (!$queryDataSet) {
+
+        if (!$match) {
             return false;
         } else {
-            return $queryDataSet;
+            return $match;
         }
     }
-
     public function find($param, $type = null)
     {
         $documents = $this->query($param, $type);
