@@ -58,10 +58,35 @@ $db->schema("Schema Name")->drop();
 $db->schema("Schema Name")->insert(array("name"=>"Jhon", "lastname"=>"Doe", "contact"=>array("phone"=>"111")));
 ```
 #### Find
+##### Functional
 ```
 
 $query = function($data){
 return $data["contact"]["phone"] == "111";
 }
+$db->schema("Schema Name")->find($query)->limit(0,10)->result();
+```
+
+##### Array Query
+```
+$query = array("name"=> "jhone");
+$db->schema("Schema Name")->insert($query);
+$db->schema("Schema Name")->find($query)->limit(0,10)->result();
+```
+
+##### Recursive
+```
+$query = array("contact.phone"=> "111");
+$db->schema("Schema Name")->insert($query);
+$db->schema("Schema Name")->find($query)->limit(0,10)->result();
+```
+##### $or operator
+```
+$query = array("name"=>array('$or'=>array("jhon","jane")));
+$db->schema("Schema Name")->find($query)->limit(0,10)->result();
+```
+##### $in operator
+```
+$query = array("hobbies"=>array('$in'=>array("Sport","Music")));
 $db->schema("Schema Name")->find($query)->limit(0,10)->result();
 ```
