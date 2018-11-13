@@ -1,10 +1,11 @@
 <?php
+//Developed by Yasin ERSOY yasin@freelyshout.com
 class UtopyaRegexTurkish
 {
     public function __construct($pattern)
     {
         $arananlar = array('/I/', '/İ/', '/Ş/', '/Ö/', '/Ü/', '/Ğ/', '/Ç/');
-        $yeniler   = array('ı', 'i', 'ş', 'ö', 'ü', 'ğ', 'ç');
+        $yeniler   = array('i', 'i', 'ş', 'ö', 'ü', 'ğ', 'ç');
         ksort($arananlar);
         ksort($yeniler);
         $pattern   = preg_replace($arananlar, $yeniler, $pattern);
@@ -51,11 +52,11 @@ class dbOperate
         $ids[$schema] = $id;
         file_put_contents($this->dbPath . 'last-ids.json', json_encode($ids));
     }
-    public function restoreBD($name)
+    public function restoreDB($name)
     {
         $zip = new ZipArchive;
         if ($zip->open($this->utopyaPath . $name) === true) {
-            $zip->extractTo($this->utopyaPath);
+            $zip->extractTo($this->dbPath);
             $zip->close();
             return true;
         } else {
@@ -202,46 +203,66 @@ class Query extends Schemas
 {
     private function operators($op, $key)
     {
-        $vals = array_values($op)[0];
-        $val  = '';
-        switch (array_keys($op)[0]) {
-            case '$hasKey':
-                $val .= '(isset($data["' . $key . '"]' . ')) && ';
-                break;
-            case '$in':
-                if (!$this->isRegex($vals)) {
+
+        if ($key === '$or') {
+            foreach ($op as $key) {
+                foreach ($key as $ev => $value) {
+                    if (!$this->isRegex($value)) {
+                        $val .= '($data["' . $ev . '"] == "' . $value . '") || ';
+                    } else {
+                        $val .= '(preg_match("' . $value . '", new UtopyaRegexTurkish($data["' . $ev . '"]))) || ';
+                    }
+                }
+            }
+            $val = rtrim($val, ' || ');
+        } else {
+            $vals = array_values($op)[0];
+            $val  = '';
+            switch (array_keys($op)[0]) {
+                case '$hasKey':
+                    $val .= '(isset($data["' . $key . '"]' . ')) && ';
+                    break;
+                case '$gt':
+                    $val .= '($data["' . $key . '"]' . ' > ' . $op . ') && ';
+                    break;
+                case '$lt':
+                    $val .= '($data["' . $key . '"]' . ' < ' . $op . ') && ';
+                    break;
+                case '$in':
+                    if (!$this->isRegex($vals)) {
+                        if (is_array($vals)) {
+                            foreach ($vals as $value) {
+                                $val .= '(in_array("' . $value . '", $data["' . $key . '"])) || ';
+                            }
+                        } else {
+                            $val .= '(in_array("' . $vals . '", $data["' . $key . '"])) && ';
+                        }
+                    } else {
+                        foreach ($vals as $value) {
+                            $val .= '($this->findRegex("' . $value . '", $data["' . $key . '"])) || ';
+                        }
+                    }
+                    $val = rtrim($val, ' || ');
+                    break;
+                case '$or':
                     if (is_array($vals)) {
                         foreach ($vals as $value) {
-                            $val .= '(in_array("' . $value . '", $data["' . $key . '"])) || ';
+                            if (!$this->isRegex($value)) {
+                                $val .= '($data["' . $key . '"] == "' . $value . '") || ';
+                            } else {
+                                $val .= '(preg_match("' . $value . '", new UtopyaRegexTurkish($data["' . $key . '"]))) || ';
+                            }
                         }
                     } else {
-                        $val .= '(in_array("' . $vals . '", $data["' . $key . '"])) && ';
-                    }
-                } else {
-                    foreach ($vals as $value) {
-                        $val .= '($this->findRegex("' . $value . '", $data["' . $key . '"])) || ';
-                    }
-                }
-                $val = rtrim($val, ' || ');
-                break;
-            case '$or':
-                if (is_array($vals)) {
-                    foreach ($vals as $value) {
-                        if (!$this->isRegex($value)) {
-                            $val .= '($data["' . $key . '"] == "' . $value . '") || ';
+                        if (!$this->isRegex($vals)) {
+                            $val .= '($data["' . $key . '"] == "' . $vals . '") || ';
                         } else {
-                            $val .= '(preg_match("' . $value . '", new UtopyaRegexTurkish($data["' . $key . '"]))) || ';
+                            $val .= '(preg_match("' . $vals . '", new UtopyaRegexTurkish($data["' . $key . '"]))) || ';
                         }
                     }
-                } else {
-                    if (!$this->isRegex($vals)) {
-                        $val .= '($data["' . $key . '"] == "' . $vals . '") || ';
-                    } else {
-                        $val .= '(preg_match("' . $vals . '", new UtopyaRegexTurkish($data["' . $key . '"]))) || ';
-                    }
-                }
-                $val = rtrim($val, ' || ');
-                break;
+                    $val = rtrim($val, ' || ');
+                    break;
+            }
         }
         return $val;
     }
@@ -275,7 +296,7 @@ class Query extends Schemas
         return rtrim($val);
 
     }
-    public function query($params)
+    public function query($params, $type)
     {
         if (!is_callable($params)) {
             $condition   = $this->Condition($params);
@@ -284,19 +305,47 @@ class Query extends Schemas
             $is_callable = true;
         }
         $match = array();
+        if (isset($type["limit"])) {
+            $limit = $type["limit"];
+        }
+        if (isset($type["skip"])) {
+            $skip = $type["skip"] + 1;
+        }
         if (!is_array($this->schema)) {
             $files = glob($this->schema . "/*");
             natsort($files);
+            if (isset($type["sort"]) && $type["sort"] === "desc") {
+                arsort($files);
+            }
             foreach ($files as $file) {
+                if ($limit === 0) {
+                    break;
+                }
+
                 $fileContents = file_get_contents($file);
                 $data         = json_decode($fileContents, true);
                 if ($is_callable) {
                     if ($params($data)) {
+                        if (isset($type["skip"])) {
+                            $skip--;
+                        }
+                        if ($skip > 0) {
+                            continue;
+                        }
+                        if (isset($type["limit"])) {
+                            $limit--;
+                        }
                         array_push($match, $data);
                     }
                 } else {
                     if (eval("return $condition;")) {
                         array_push($match, $data);
+                        if (isset($type["limit"])) {
+                            $limit--;
+                        }
+                        if (isset($type["skip"])) {
+                            $skip--;
+                        }
                     }
                 }
             }
@@ -314,18 +363,26 @@ class Query extends Schemas
                 }
             }
         }
-
         if (!$match) {
             return false;
         } else {
             return $match;
         }
     }
+    public function count($param, $type = null)
+    {
+        $files = glob($this->schema . "/*");
+        if ($files) {
+            return count($files);
+        } else {
+            return 0;
+        }
+    }
     public function find($param, $type = null)
     {
         $documents = $this->query($param, $type);
         if (!$documents) {
-            $this->error("Document not found", $this->schemaName . " " . print_r($param, true));
+            //$this->error("Document not found", $this->schemaName . " " . print_r($param, true));
         }
         return new Result($documents);
     }
@@ -353,9 +410,9 @@ class Query extends Schemas
         if (!$this->schemaExist($this->schemaName)) {
             $this->createSchema($this->schemaName) or die(lastError());
         }
-        $params     = (!is_array($params)) ? json_decode($params) : (object) $params;
-        $lastid     = $this->lastID($this->schemaName) + 1;
-        $params->id = (string) $lastid;
+        $params = (!is_array($params)) ? json_decode($params, true) : $params;
+        $lastid = $this->lastID($this->schemaName) + 1;
+        $params = array("id" => $lastid) + $params;
         try {
             file_put_contents($this->schema . "/" . $lastid . ".json", json_encode($params));
             $this->saveid($lastid, $this->schemaName);
@@ -368,24 +425,13 @@ class Query extends Schemas
     }
     public function remove($query)
     {
-        $file     = false;
-        $document = false;
+        $file = false;
         if (is_numeric($query)) {
             if (!$this->documentExist($query)) {
                 $this->error("Document not found", $this->schemaName . " (id=$query)");
                 return false;
             }
-            $file       = $this->schema . "/" . $query . ".json";
-            $document[] = json_decode(file_get_contents($file), true);
-        } else {
-            $document = $this->query($query);
-        }
-        if (!$document) {
-            $this->error("Documents not found", $this->schemaName . " " . print_r($query, true));
-            return false;
-        }
-        foreach ($document as $d) {
-            $file = ($file) ? $file : $this->schema . "/" . $d["id"] . ".json";
+            $file = $this->schema . "/" . $query . ".json";
             try {
                 unlink($file);
                 return true;
@@ -393,11 +439,28 @@ class Query extends Schemas
                 $this->error($e, $this->schemaName);
                 return false;
             }
+        } else {
+            $document = $this->query($query);
+            if (!$document) {
+                $this->error("Documents not found", $this->schemaName . " " . print_r($query, true));
+                return false;
+            }
+            foreach ($document as $d) {
+                $file = $this->schema . "/" . $d["id"] . ".json";
+                try {
+                    unlink($file);
+                    return true;
+                } catch (Exception $e) {
+                    $this->error($e, $this->schemaName);
+                    return false;
+                }
+            }
         }
     }
     public function findOne($id)
     {
         if (!$this->documentExist($id)) {
+            throw new Exception("Document not found " . $this->schemaName . " (id=$id)");
             $this->error("Document not found", $this->schemaName . " (id=$id)");
             return false;
         }
@@ -408,6 +471,7 @@ class Query extends Schemas
     {
         $file     = false;
         $document = false;
+        unset($params["id"]);
         if (is_numeric($query)) {
             if (!$this->documentExist($query)) {
                 $this->error("Document not found", $this->schemaName . " (id=$query)");
@@ -425,20 +489,17 @@ class Query extends Schemas
         }
         $return = array();
         foreach ($document as $d) {
-            $params = (!is_array($params)) ? json_decode($params) : (object) $params;
-            foreach ($params as $key => $value) {
-                $d[$key] = $value;
-            }
-            $return[] = $d;
+            $params   = (!is_array($params)) ? json_decode($params, true) : $params;
+            $return[] = $d = array_replace($d, $params);
             $file     = ($file) ? $file : $this->schema . "/" . $d["id"] . ".json";
             try {
                 file_put_contents($file, json_encode($d));
-                return $return;
             } catch (Exception $e) {
                 $this->error($e, $this->schemaName);
                 return false;
             }
         }
+        return $return;
     }
 }
 
@@ -451,11 +512,29 @@ class Result
         $this->result = $data;
         return $this;
     }
-    public function limit($s, $l)
+    public function limit($s, $l = null)
     {
-        $limit        = (!$l) ? $s : $l;
-        $skip         = ($l) ? $s : 0;
-        $this->result = array_slice($this->result, $skip, $limit);
+        $limit = (!$l) ? $s : $l;
+        $skip  = ($l) ? $s : 0;
+        if ($limit > 1) {
+            $this->result = array_slice($this->result, $skip, $limit);
+        } else {
+            $this->result = $this->result[0];
+        }
+        return $this;
+    }
+    public function execute($r)
+    {
+        $t = array();
+        foreach ($this->result as $data) {
+            $t[] = $r($data);
+        }
+        $this->result = $t;
+        return $this;
+    }
+    public function random()
+    {
+        shuffle($this->result);
         return $this;
     }
     public function sort($p)
@@ -463,8 +542,11 @@ class Result
         usort($this->result, $p);
         return $this;
     }
-    public function result()
+    public function result($index)
     {
+        if ($index !== null && is_numeric($index)) {
+            return $this->result[$index];
+        }
         return $this->result;
     }
     public function reverse()
@@ -495,6 +577,12 @@ class UtopyaDB extends Query
             $this->createDB($db);
         }
     }
+
+    public function __get($schema)
+    {
+        return $this->schema($schema);
+    }
+
     public function createDB($db)
     {
         mkdir($this->utopyaPath . $db);
