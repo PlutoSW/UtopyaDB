@@ -1,7 +1,6 @@
 # UtopyaDB
 File based Database with Php
 
-
 ## Connection
 ```
 $db = new UtopyaDB("fuuyemek");
